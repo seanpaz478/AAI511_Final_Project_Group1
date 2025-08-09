@@ -45,6 +45,71 @@ import numpy as np
 if not hasattr(np, 'int'):
     np.int = int
 
+# =============================================================================
+# Dataset classes
+# =============================================================================
+class MultimodalDataset(Dataset):
+    """
+    Dataset class that handles both piano rolls (for CNN) and musical features (for MLP)
+    """
+    def __init__(self, piano_rolls, features_list, labels):
+        # Convert piano rolls to tensor
+        self.piano_rolls = torch.tensor(piano_rolls, dtype=torch.float32)
+
+        # Convert feature dictionaries to feature vectors
+        self.features = self._process_features(features_list)
+
+        # Convert labels to tensor
+        self.labels = torch.tensor(labels, dtype=torch.long)
+
+        print(f"Multimodal Dataset Created:")
+        print(f"Piano rolls: {self.piano_rolls.shape}")
+        print(f"Features: {self.features.shape}")
+        print(f"Labels: {self.labels.shape}")
+        print(f"Total samples: {len(self.labels)}")
+
+
+    def _process_features(self, features_list):
+        """Convert list of feature dictionaries to tensor"""
+        # Get feature names from first sample
+        feature_names = list(features_list[0].keys())
+
+        # Extract feature values for all samples
+        feature_matrix = []
+        for feature_dict in features_list:
+            feature_vector = [feature_dict[name] for name in feature_names]
+            feature_matrix.append(feature_vector)
+
+        # Convert to tensor and normalize
+        features_tensor = torch.tensor(feature_matrix, dtype=torch.float32)
+
+        # Normalize features (important for MLP training)
+        features_mean = features_tensor.mean(dim=0)
+        features_std = features_tensor.std(dim=0)
+        features_std[features_std == 0] = 1  # Avoid division by zero
+        features_normalized = (features_tensor - features_mean) / features_std
+
+        print(f"Feature Processing:")
+        print(f"• Feature names: {feature_names[:5]}...")
+        print(f"• Features normalized: mean≈0, std≈1")
+
+        return features_normalized
+
+    def __len__(self):
+        return len(self.labels)
+
+    def __getitem__(self, idx):
+        # Piano roll with channel dimension for CNN: (1, 128, T)
+        piano_roll = self.piano_rolls[idx].unsqueeze(0)
+
+        # Feature vector for MLP: (num_features,)
+        features = self.features[idx]
+
+        # Label
+        label = self.labels[idx]
+
+        return piano_roll, features, label
+
 
 # =============================================================================
 # Data processing
@@ -651,88 +716,6 @@ def load_segmented_dataset_no_overlap(extract_path, target_composers, segment_du
 
 
 # =============================================================================
-# Dataset classes
-# TODO: Move these to their own file
-# =============================================================================
-
-class PianoRollDataset(Dataset):
-    """Simple dataset for piano roll data with labels"""
-    def __init__(self, data, labels):
-        self.data = torch.tensor(data, dtype=torch.float32)
-        self.labels = torch.tensor(labels, dtype=torch.long)
-    
-    def __len__(self):
-        return len(self.data)
-    
-    def __getitem__(self, idx):
-        # Add channel dimension for CNN: (1, 128, T)
-        return self.data[idx].unsqueeze(0), self.labels[idx]
-
-
-class MultimodalDataset(Dataset):
-    """
-    Dataset class that handles both piano rolls (for CNN) and musical features (for MLP)
-    """
-    def __init__(self, piano_rolls, features_list, labels):
-        # Convert piano rolls to tensor
-        self.piano_rolls = torch.tensor(piano_rolls, dtype=torch.float32)
-
-        # Convert feature dictionaries to feature vectors
-        self.features = self._process_features(features_list)
-
-        # Convert labels to tensor
-        self.labels = torch.tensor(labels, dtype=torch.long)
-
-        print(f"Multimodal Dataset Created:")
-        print(f"Piano rolls: {self.piano_rolls.shape}")
-        print(f"Features: {self.features.shape}")
-        print(f"Labels: {self.labels.shape}")
-        print(f"Total samples: {len(self.labels)}")
-
-
-    def _process_features(self, features_list):
-        """Convert list of feature dictionaries to tensor"""
-        # Get feature names from first sample
-        feature_names = list(features_list[0].keys())
-
-        # Extract feature values for all samples
-        feature_matrix = []
-        for feature_dict in features_list:
-            feature_vector = [feature_dict[name] for name in feature_names]
-            feature_matrix.append(feature_vector)
-
-        # Convert to tensor and normalize
-        features_tensor = torch.tensor(feature_matrix, dtype=torch.float32)
-
-        # Normalize features (important for MLP training)
-        features_mean = features_tensor.mean(dim=0)
-        features_std = features_tensor.std(dim=0)
-        features_std[features_std == 0] = 1  # Avoid division by zero
-        features_normalized = (features_tensor - features_mean) / features_std
-
-        print(f"Feature Processing:")
-        print(f"• Feature names: {feature_names[:5]}...")
-        print(f"• Features normalized: mean≈0, std≈1")
-
-        return features_normalized
-
-    def __len__(self):
-        return len(self.labels)
-
-    def __getitem__(self, idx):
-        # Piano roll with channel dimension for CNN: (1, 128, T)
-        piano_roll = self.piano_rolls[idx].unsqueeze(0)
-
-        # Feature vector for MLP: (num_features,)
-        features = self.features[idx]
-
-        # Label
-        label = self.labels[idx]
-
-        return piano_roll, features, label
-
-
-# =============================================================================
 # Other utils
 # =============================================================================
 
@@ -754,36 +737,6 @@ def get_device():
         print("🚀 Using CPU")
     
     return device
-
-
-def create_data_loaders(dataset, batch_size=32, train_split=0.8, dataset_class=None):
-    """
-    Create train and validation data loaders from a dataset
-    
-    Args:
-        dataset: PyTorch dataset
-        batch_size (int): Batch size for data loaders
-        train_split (float): Fraction of data for training
-        shuffle (bool): Whether to shuffle the data
-        
-    Returns:
-        tuple: (train_loader, val_loader)
-    """
-    # Split dataset
-    train_size = int(train_split * len(dataset))
-    val_size = len(dataset) - train_size
-    train_dataset, val_dataset = random_split(dataset, [train_size, val_size])
-    
-    # Create data loaders
-    train_loader = DataLoader(train_dataset, batch_size=batch_size, shuffle=False)
-    val_loader = DataLoader(val_dataset, batch_size=batch_size, shuffle=False)
-    
-    print(f"Data Loaders Created:")
-    print(f"• Training samples: {len(train_dataset)}")
-    print(f"• Validation samples: {len(val_dataset)}")
-    print(f"• Batch size: {batch_size}")
-    
-    return train_loader, val_loader
 
 
 def split_dataset_by_song(song_ids, train_split=0.8, seed=42):
@@ -877,30 +830,6 @@ def plot_training_curves(train_losses, val_accuracies, title_prefix="Model"):
     
     plt.tight_layout()
     plt.show()
-
-
-def print_model_summary(model, num_features=None):
-    """
-    Print a summary of the model architecture and parameters
-    
-    Args:
-        model: PyTorch model
-        num_features (int, optional): Number of input features for MLP stream
-    """
-    total_params = sum(p.numel() for p in model.parameters())
-    trainable_params = sum(p.numel() for p in model.parameters() if p.requires_grad)
-    
-    print(f"MODEL SUMMARY:")
-    print(f"• Model class: {model.__class__.__name__}")
-    print(f"• Total parameters: {total_params:,}")
-    print(f"• Trainable parameters: {trainable_params:,}")
-    
-    if num_features:
-        print(f"• Input features (MLP): {num_features}")
-    
-    print(f"• Model architecture:")
-    for name, module in model.named_children():
-        print(f"  - {name}: {module.__class__.__name__}")
 
 
 def evaluate_model_comprehensive(model, val_loader, target_composers, device='cpu'):
