@@ -119,7 +119,7 @@ def download_dataset():
     TARGET_COMPOSERS = ['Bach', 'Beethoven', 'Chopin', 'Mozart']
     path = kagglehub.dataset_download("blanderbuss/midi-classic-music")
     zip_path = os.path.join(path, 'midiclassics.zip')
-    extract_path = os.path.join('data', 'kaggle', 'midiclassics')
+    extract_path = os.path.join('..', 'data', 'kaggle', 'midiclassics')
 
     with zipfile.ZipFile(zip_path, 'r') as zip_ref:
         zip_ref.extractall(extract_path)
@@ -470,11 +470,11 @@ def load_comprehensive_features(data, cache_path="comprehensive_musical_features
     Load comprehensive features from cache if available, else compute and cache them.
     Args:
         data (list or np.ndarray): List/array of piano rolls
-        cache_path (str): Path to cache file (will be saved in local_cache/)
+        cache_path (str): Path to cache file (will be saved in ../local_cache/)
     Returns:
         list: List of comprehensive feature dicts
     """
-    cache_dir = "local_cache"
+    cache_dir = "../local_cache"
     os.makedirs(cache_dir, exist_ok=True)
     cache_path = os.path.join(cache_dir, os.path.basename(cache_path))
     if os.path.exists(cache_path):
@@ -600,7 +600,7 @@ def load_segmented_dataset_no_overlap(extract_path, target_composers, segment_du
     print(f"Segment duration: {segment_duration}s with NO OVERLAP")
     print(f"Balance classes: {balance_classes}")
 
-    cache_dir = "local_cache"
+    cache_dir = "../local_cache"
     os.makedirs(cache_dir, exist_ok=True)
     cache_path = os.path.join(cache_dir, f"segmented_dataset_no_overlap_{segment_duration}.pkl")
     if os.path.exists(cache_path):
