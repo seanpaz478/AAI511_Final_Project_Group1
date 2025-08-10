@@ -1027,3 +1027,129 @@ def evaluate_model_comprehensive(model, val_loader, target_composers, device='cp
         'overall_accuracy': overall_accuracy,
         'class_accuracies': class_accuracies
     }
+
+def train_cnn_lstm_mlp_model(model, train_loader, val_loader, criterion, optimizer, scheduler, epochs=40, device='cpu'):
+    """
+    Train the CNN-LSTM-MLP multimodal model
+
+    Args:
+        model: CNN-LSTM-MLP model to train
+        train_loader: Training data loader
+        val_loader: Validation data loader
+        criterion: Loss function
+        optimizer: Optimizer
+        scheduler: Learning rate scheduler
+        epochs (int): Number of epochs to train
+        device (str): Device to train on
+
+    Returns:
+        tuple: (train_losses, val_accuracies)
+    """
+    train_losses = []
+    val_accuracies = []
+
+    for epoch in range(epochs):
+        # Training
+        model.train()
+        epoch_loss = 0.0
+
+        for piano_rolls, features, labels in train_loader:
+            piano_rolls, features, labels = piano_rolls.to(device), features.to(device), labels.to(device)
+
+            optimizer.zero_grad()
+            outputs = model(piano_rolls, features)
+            loss = criterion(outputs, labels)
+
+            # Gradient clipping for LSTM stability
+            loss.backward()
+            torch.nn.utils.clip_grad_norm_(model.parameters(), max_norm=1.0)
+            optimizer.step()
+
+            epoch_loss += loss.item()
+
+        # Validation
+        model.eval()
+        correct = 0
+        total = 0
+
+        with torch.no_grad():
+            for piano_rolls, features, labels in val_loader:
+                piano_rolls, features, labels = piano_rolls.to(device), features.to(device), labels.to(device)
+                outputs = model(piano_rolls, features)
+                _, predicted = torch.max(outputs.data, 1)
+                total += labels.size(0)
+                correct += (predicted == labels).sum().item()
+
+        val_accuracy = 100 * correct / total
+        avg_loss = epoch_loss / len(train_loader)
+
+        train_losses.append(avg_loss)
+        val_accuracies.append(val_accuracy)
+
+        print(f'[CNN-LSTM-MLP] Epoch [{epoch+1}/{epochs}], Loss: {avg_loss:.4f}, Val Acc: {val_accuracy:.2f}%')
+
+        scheduler.step()
+
+    return train_losses, val_accuracies
+
+
+def train_cnn_mlp_model(model, train_loader, val_loader, criterion, optimizer, scheduler, epochs=40, device='cpu'):
+    """
+    Train the CNN-MLP multimodal model
+
+    Args:
+        model: CNN-MLP model to train
+        train_loader: Training data loader
+        val_loader: Validation data loader
+        criterion: Loss function
+        optimizer: Optimizer
+        scheduler: Learning rate scheduler
+        epochs (int): Number of epochs to train
+        device (str): Device to train on
+
+    Returns:
+        tuple: (train_losses, val_accuracies)
+    """
+    train_losses = []
+    val_accuracies = []
+
+    for epoch in range(epochs):
+        # Training
+        model.train()
+        epoch_loss = 0.0
+
+        for piano_rolls, features, labels in train_loader:
+            piano_rolls, features, labels = piano_rolls.to(device), features.to(device), labels.to(device)
+
+            optimizer.zero_grad()
+            outputs = model(piano_rolls, features)
+            loss = criterion(outputs, labels)
+            loss.backward()
+            optimizer.step()
+
+            epoch_loss += loss.item()
+
+        # Validation
+        model.eval()
+        correct = 0
+        total = 0
+
+        with torch.no_grad():
+            for piano_rolls, features, labels in val_loader:
+                piano_rolls, features, labels = piano_rolls.to(device), features.to(device), labels.to(device)
+                outputs = model(piano_rolls, features)
+                _, predicted = torch.max(outputs.data, 1)
+                total += labels.size(0)
+                correct += (predicted == labels).sum().item()
+
+        val_accuracy = 100 * correct / total
+        avg_loss = epoch_loss / len(train_loader)
+
+        train_losses.append(avg_loss)
+        val_accuracies.append(val_accuracy)
+
+        print(f'[CNN-MLP] Epoch [{epoch+1}/{epochs}], Loss: {avg_loss:.4f}, Val Acc: {val_accuracy:.2f}%')
+
+        scheduler.step()
+
+    return train_losses, val_accuracies
