@@ -39,6 +39,8 @@ import kagglehub
 import zipfile
 import pickle
 import numpy as np
+from music21 import converter, instrument, note, chord
+from tqdm import tqdm
 
 
 # needed because some systems may not have np.int defined
@@ -48,6 +50,17 @@ if not hasattr(np, 'int'):
 # =============================================================================
 # Dataset classes
 # =============================================================================
+
+class PianoRollDataset(Dataset):
+    def __init__(self, data, labels):
+        self.data = torch.tensor(data, dtype=torch.float32)
+        self.labels = torch.tensor(labels, dtype=torch.long)
+    def __len__(self):
+        return len(self.data)
+    def __getitem__(self, idx):
+        # Add channel dimension for CNN: (1, 128, T)
+        return self.data[idx].unsqueeze(0), self.labels[idx]
+
 class MultimodalDataset(Dataset):
     """
     Dataset class that handles both piano rolls (for CNN) and musical features (for MLP)
@@ -266,6 +279,80 @@ def get_piano_roll_segments_no_overlap(midi_path, fs=100, segment_duration=20.0)
     except Exception as e:
         print(f"Error processing {midi_path}: {e}")
         return None
+
+
+def music21_piano_roll(midi_path, time_step=0.25, max_length=128):
+    """
+    Convert a MIDI file to a piano roll matrix using music21.
+    Args:
+        midi_path (str): Path to MIDI file
+        time_step (float): Time step in quarterLength (default 0.25 = 16th note)
+        max_length (int): Maximum number of time steps (truncate or pad)
+    Returns:
+        np.ndarray: Piano roll (128, T)
+    """
+    midi = converter.parse(midi_path)
+    notes_to_parse = None
+    parts = instrument.partitionByInstrument(midi)
+    if parts:  # file has instrument parts
+        notes_to_parse = parts.parts[0].recurse()
+    else:
+        notes_to_parse = midi.flat.notes
+
+    # Find the total length
+    total_length = int(midi.highestTime / time_step) + 1
+    T = min(total_length, max_length)
+    piano_roll = np.zeros((128, T), dtype=np.float32)
+
+    for element in notes_to_parse:
+        if isinstance(element, note.Note):
+            pitch = element.pitch.midi
+            start = int(element.offset / time_step)
+            duration = int(element.quarterLength / time_step)
+            end = min(start + duration, T)
+            piano_roll[pitch, start:end] = 1.0
+        elif isinstance(element, chord.Chord):
+            start = int(element.offset / time_step)
+            duration = int(element.quarterLength / time_step)
+            end = min(start + duration, T)
+            for pitch in element.pitches:
+                piano_roll[pitch.midi, start:end] = 1.0
+
+    # Pad if needed
+    if piano_roll.shape[1] < max_length:
+        pad_width = max_length - piano_roll.shape[1]
+        piano_roll = np.pad(piano_roll, ((0,0),(0,pad_width)), mode='constant')
+
+    return piano_roll[:, :max_length]
+
+
+def extract_music21_piano_roll_segments(path, time_step=0.25, max_length=128):
+    TARGET_COMPOSERS = ['Bach', 'Beethoven', 'Chopin', 'Mozart']
+
+    # Gather MIDI file paths and labels
+    midi_paths = []
+    labels = []
+    for idx, composer in enumerate(TARGET_COMPOSERS):
+        composer_dir = os.path.join(path, composer)
+        for fname in os.listdir(composer_dir):
+            if fname.endswith('.mid'):
+                midi_paths.append(os.path.join(composer_dir, fname))
+                labels.append(idx)
+
+    # Extract piano rolls using music21
+    piano_rolls = []
+    valid_labels = []
+    for path, label in tqdm(zip(midi_paths, labels), total=len(midi_paths)):
+        try:
+            pr = music21_piano_roll(path, max_length=max_length)
+            if pr.shape == (128, max_length):
+                piano_rolls.append(pr)
+                valid_labels.append(label)
+        except Exception as e:
+            print(f"Failed: {path} ({e})")
+
+    print(f"Extracted {len(piano_rolls)} piano rolls.")
+    return piano_rolls, valid_labels
 
 
 # =============================================================================
